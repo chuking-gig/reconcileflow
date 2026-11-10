@@ -1,0 +1,6 @@
+{
+  "name": "ReconcileFlow - Reconciliation Exception Management",
+  "description": "Centralized finance reconciliation exception management platform powered by Model Context Protocol (MCP).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MCP_SERVER", "RECONCILIATION_EXCEPTION_MANAGEMENT"]
+}
