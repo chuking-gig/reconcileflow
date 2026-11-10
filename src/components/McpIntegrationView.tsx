@@ -92,7 +92,7 @@ export const McpIntegrationView: React.FC<McpIntegrationViewProps> = ({ onRefres
           <button onClick={() => copy(endpoint)} className="shrink-0 flex items-center gap-1 text-slate-600 hover:text-slate-950" aria-label="Copy MCP endpoint">{copied ? <Check size={14} /> : <Copy size={14} />}<span>{copied ? 'Copied' : 'Copy'}</span></button>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[11px] text-slate-500">Configure your client to send a Bearer token when MCP_AUTH_TOKEN is enabled.</span>
+          <span className="text-[11px] text-slate-500">Clients sign in with Auth0 OAuth when the server is configured.</span>
           <button onClick={() => copy(clientConfig)} className="flex items-center gap-1 text-slate-700 hover:text-slate-950"><Copy size={13} /> Copy client config</button>
         </div>
         <pre className="rounded bg-slate-950 p-3 text-[10px] text-emerald-300 overflow-x-auto">{clientConfig}</pre>
@@ -117,7 +117,7 @@ export const McpIntegrationView: React.FC<McpIntegrationViewProps> = ({ onRefres
             <label htmlFor="mcp-tool-args" className="block font-medium text-slate-700 mb-1">Arguments (JSON)</label>
             <textarea id="mcp-tool-args" value={argsText} onChange={(event) => setArgsText(event.target.value)} rows={13} spellCheck={false} className="w-full rounded border border-slate-200 bg-slate-50 p-3 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-slate-700" />
             <div className="flex items-center gap-2 mt-2">
-              <button onClick={runTool} disabled={isRunning} className="flex items-center gap-1.5 rounded bg-slate-900 px-3 py-2 text-white hover:bg-slate-800 disabled:opacity-50"><Play size={13} />{isRunning ? 'Running…' : 'Run tool'}</button>
+              {mcpInfo?.toolInspectorEnabled !== false ? <button onClick={runTool} disabled={isRunning} className="flex items-center gap-1.5 rounded bg-slate-900 px-3 py-2 text-white hover:bg-slate-800 disabled:opacity-50"><Play size={13} />{isRunning ? 'Running…' : 'Run tool'}</button> : <span className="py-2 text-[10px] text-slate-500">Use an OAuth-connected MCP client to run remote tools.</span>}
               <button onClick={() => { setArgsText(JSON.stringify(TOOL_EXAMPLES[selectedTool] || {}, null, 2)); setError(null); }} className="flex items-center gap-1 rounded px-2 py-2 text-slate-600 hover:bg-slate-100"><RefreshCw size={12} /> Reset example</button>
             </div>
           </div>

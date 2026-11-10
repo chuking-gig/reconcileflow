@@ -70,6 +70,7 @@ export interface McpServerInfo {
   tools: any[];
   mcpClientConfig: any;
   status: string;
+  toolInspectorEnabled?: boolean;
 }
 
 export const api = {

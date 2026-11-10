@@ -4,22 +4,31 @@ ReconcileFlow is a reconciliation exception management application with a provid
 
 ## Run locally
 
-Requires Node.js. Run `npm install`, then `npm run dev`. The dashboard is served on port 3000 by default.
+Requires Node.js. Run `npm install`, then `npm run dev`. The dashboard is served on port 3000 by default. Without Auth0 settings the MCP endpoint is open for local development only.
 
-## Connect an MCP client
+## Configure Auth0 OAuth for MCP
 
-Expose the app over HTTPS and connect an MCP-capable client to `https://<your-host>/api/mcp` using Streamable HTTP. Set `MCP_AUTH_TOKEN` in production and configure the client to send it as a Bearer token. Example client configuration:
+1. Create an Auth0 API whose Identifier is the value you will use for `AUTH0_AUDIENCE` (for example `https://reconcileflow-u6k9.onrender.com`). Use RS256 signing.
+2. Add the API permissions `read:reconciliation` and `write:reconciliation`. Enable RBAC and include permissions in access tokens. Assign these permissions only to trusted users/roles.
+3. Enable Dynamic Client Registration and Resource Parameter Compatibility Profile in Auth0's tenant advanced settings. Enable the login connection for DCR-created clients.
+4. Set the following environment variables on the Render web service:
 
-```json
-{
-  "mcpServers": {
-    "reconcileflow": {
-      "url": "https://<your-host>/api/mcp"
-    }
-  }
-}
-```
+   - `AUTH0_DOMAIN`: tenant domain, without `https://` (for example `example.us.auth0.com`)
+   - `AUTH0_AUDIENCE`: exact API Identifier from Auth0
+   - `MCP_SERVER_URL`: `https://<your-render-host>/api/mcp`
 
-The six tools are `get_reconciliation_data`, `save_reconciliation_results`, `get_reconciliation_summary`, `list_reconciliation_items`, `update_reconciliation_item`, and `bulk_update_reconciliation_items`. Read-only workflow resources are available under `reconcile://`.
+5. Redeploy, then connect an MCP client to the `MCP_SERVER_URL`. Auth0 provides the sign-in flow; the MCP server verifies the JWT issuer, audience, signature, and tool scopes against Auth0's JWKS.
 
-The application uses JSON files in `data/` as its current local persistence layer. Protect remote access with an authenticated deployment gateway; never expose the demo server directly to the public internet.
+The protected-resource metadata is served at `/.well-known/oauth-protected-resource/api/mcp`. The old shared `MCP_AUTH_TOKEN` configuration is no longer used. Production MCP access returns 503 until Auth0 settings are configured. Legacy SSE and the browser MCP inspector are disabled in production.
+
+## Connect from Claude
+
+In Claude, add a custom connector using `https://<your-render-host>/api/mcp`, then complete the Auth0 sign-in. The server supports Streamable HTTP and exposes six reconciliation tools plus read-only `reconcile://` resources.
+
+## Data storage
+
+The current local persistence layer uses JSON files in `data/`. Render's default filesystem is ephemeral; configure persistent storage or move to a managed database before relying on data across deploys.
+
+## Security scope
+
+OAuth protects the MCP transport. The dashboard's REST APIs still need application login and authorization before using the public deployment with real financial data.

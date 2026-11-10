@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, RequestHandler } from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
@@ -12,6 +12,7 @@ import {
   VALID_RESOLUTION_STATUSES,
   createMcpHttpHandler,
 } from './server/mcp.js';
+import { createAuth0McpBearerMiddleware, getAuth0McpConfig } from './server/auth0.js';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -376,13 +377,14 @@ app.get('/api/mcp/info', (req: Request, res: Response) => {
     description: 'ReconcileFlow Bank Reconciliation Exception Management Platform MCP Server',
     endpoints: {
       jsonRpcHttp: `${baseUrl}/api/mcp`,
-      sse: `${baseUrl}/mcp/sse`,
-      sseMessages: `${baseUrl}/mcp/messages`,
+      protectedResourceMetadata: `${baseUrl}/.well-known/oauth-protected-resource/api/mcp`,
     },
     tools: MCP_TOOLS_DEFINITIONS,
     mcpClientConfig: mcpConfig,
     desktopClientConfig: mcpConfig,
-    status: 'online',
+    status: auth0McpConfig ? 'online' : process.env.NODE_ENV === 'production' ? 'missing_auth' : 'development',
+    authentication: auth0McpConfig ? 'Auth0 OAuth 2.0' : 'Local development without authentication',
+    toolInspectorEnabled: process.env.NODE_ENV !== 'production',
   });
 });
 
@@ -391,6 +393,10 @@ app.get('/mcp/tools', (_req: Request, res: Response) => {
 });
 
 app.post('/api/mcp/execute', (req: Request, res: Response) => {
+  if (process.env.NODE_ENV === 'production') {
+    res.status(404).json({ error: 'The MCP inspector endpoint is disabled in production. Connect through the authenticated MCP endpoint.' });
+    return;
+  }
   const { tool, arguments: args } = req.body;
   if (!tool) {
     res.status(400).json({ error: 'Missing "tool" name parameter' });
@@ -418,12 +424,26 @@ const handleJsonRpc = (req: Request, res: Response) => {
   res.json(response);
 };
 
-const protectMcp = (req: Request, res: Response, next: () => void) => {
-  const expected = process.env.MCP_AUTH_TOKEN;
-  if (!expected && process.env.NODE_ENV === 'production') { res.status(503).json({ error: 'MCP_AUTH_TOKEN must be configured before exposing MCP remotely.' }); return; }
-  if (expected && req.get('authorization') !== `Bearer ${expected}`) { res.status(401).json({ error: 'Unauthorized MCP client.' }); return; }
-  next();
-};
+const auth0McpConfig = getAuth0McpConfig();
+const protectMcp: RequestHandler = auth0McpConfig
+  ? createAuth0McpBearerMiddleware(auth0McpConfig)
+  : (req, res, next) => {
+      if (process.env.NODE_ENV === 'production') { res.status(503).json({ error: 'Configure AUTH0_DOMAIN and AUTH0_AUDIENCE to enable OAuth-protected MCP access.' }); return; }
+      next();
+    };
+
+app.get('/.well-known/oauth-protected-resource/api/mcp', (_req: Request, res: Response) => {
+  if (!auth0McpConfig) { res.status(503).json({ error: 'Auth0 MCP OAuth is not configured.' }); return; }
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.json({
+    resource: auth0McpConfig.resourceUrl,
+    authorization_servers: [auth0McpConfig.issuer],
+    scopes_supported: ['openid', 'profile', 'email', 'read:reconciliation', 'write:reconciliation'],
+    bearer_methods_supported: ['header'],
+    resource_name: 'ReconcileFlow',
+  });
+});
+
 app.all('/api/mcp', protectMcp, (req: Request, res: Response) => { void createMcpHttpHandler(req, res).catch(err => { console.error('MCP transport error', err); if (!res.headersSent) res.status(500).json({ error: 'MCP request failed' }); }); });
 app.all('/mcp', protectMcp, (req: Request, res: Response) => { void createMcpHttpHandler(req, res).catch(err => { console.error('MCP transport error', err); if (!res.headersSent) res.status(500).json({ error: 'MCP request failed' }); }); });
 
@@ -457,8 +477,12 @@ const handleSseConnect = (req: Request, res: Response) => {
   });
 };
 
-app.get('/mcp/sse', handleSseConnect);
-app.get('/sse', handleSseConnect);
+const handleLegacySseConnect = (req: Request, res: Response) => {
+  if (process.env.NODE_ENV === 'production') { res.status(404).json({ error: 'Legacy SSE transport is disabled. Use the authenticated Streamable HTTP endpoint.' }); return; }
+  handleSseConnect(req, res);
+};
+app.get('/mcp/sse', handleLegacySseConnect);
+app.get('/sse', handleLegacySseConnect);
 
 const handleSseMessage = (req: Request, res: Response) => {
   const sessionId = (req.query.sessionId as string) || (req.headers['mcp-session-id'] as string);
@@ -477,8 +501,12 @@ const handleSseMessage = (req: Request, res: Response) => {
   }
 };
 
-app.post('/mcp/messages', handleSseMessage);
-app.post('/api/mcp/messages', handleSseMessage);
+const handleLegacySseMessage = (req: Request, res: Response) => {
+  if (process.env.NODE_ENV === 'production') { res.status(404).json({ error: 'Legacy SSE transport is disabled. Use the authenticated Streamable HTTP endpoint.' }); return; }
+  handleSseMessage(req, res);
+};
+app.post('/mcp/messages', handleLegacySseMessage);
+app.post('/api/mcp/messages', handleLegacySseMessage);
 
 /* ==========================================================================
    Frontend Serving (Vite Middlewares in Dev / Dist in Prod)

@@ -6,7 +6,15 @@ import { CallToolRequestSchema, ListToolsRequestSchema, ListResourcesRequestSche
 export const createMcpHttpHandler = async (req: any, res: any) => {
   const server = new Server({ name: 'reconcileflow', version: '3.0.0' }, { capabilities: { tools: {}, resources: {} }, instructions: 'ReconcileFlow is the system of record. Use tools for data and operations; AI analysis is performed by the connected client.' });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: MCP_TOOLS_DEFINITIONS as any }));
-  server.setRequestHandler(CallToolRequestSchema, async (request) => executeMCPTool(request.params.name, request.params.arguments || {}) as any);
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    const writeTools = new Set(['save_reconciliation_results', 'create_reconciliation_results', 'update_reconciliation_item', 'bulk_update_reconciliation_items']);
+    const requiredScope = writeTools.has(request.params.name) ? 'write:reconciliation' : 'read:reconciliation';
+    const scopes = extra.authInfo?.scopes || [];
+    if (process.env.NODE_ENV === 'production' && !scopes.includes(requiredScope)) {
+      return { isError: true, content: [{ type: 'text', text: `Access denied. This tool requires the ${requiredScope} permission.` }] };
+    }
+    return executeMCPTool(request.params.name, request.params.arguments || {}) as any;
+  });
   const resources = [
     { uri: 'reconcile://schema', name: 'Reconciliation schema', mimeType: 'text/markdown', text: 'Source transactions are immutable uploaded ledger and bank rows. Reconciliation items classify comparisons and carry separate resolution state.' },
     { uri: 'reconcile://matching-rules', name: 'Matching rules', mimeType: 'text/markdown', text: 'Match transactions using date, amount, description and source references; IDs may differ between sources. Classifications: Matched, Probable Match, Amount Mismatch, Missing in Bank, Missing in Ledger, Potential Duplicate.' },
