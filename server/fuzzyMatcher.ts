@@ -75,29 +75,43 @@ export function runFuzzyReconciliation(
       if (matchedBankIndices.has(bIdx)) continue;
       const bRow = bankRows[bIdx];
 
-      // Exact ID match
+      // 1. Exact ID match (Highest Confidence)
       if (bRow.transaction_id.toLowerCase() === lRow.transaction_id.toLowerCase()) {
         bestBankIdx = bIdx;
         bestScore = 1.0;
         break;
       }
 
-      // Fuzzy description match
+      // 2. Fuzzy description match
       const sim = tokenSimilarity(lRow.description, bRow.description);
-      if (sim > 0.5 && sim > bestScore) {
+      
+      // 3. Hybrid Logic:
+      // If description similarity is very high, it's a match.
+      // If description similarity is moderate (>=0.3) AND amount is identical, it's a "Probable Match".
+      if (sim > 0.7) {
+        bestScore = sim;
+        bestBankIdx = bIdx;
+        break; // Found high confidence match, stop looking
+      } else if (sim >= 0.3 && lRow.amount === bRow.amount) {
+        // High likelihood based on amount coincidence
+        if (0.9 > bestScore) {
+          bestScore = 0.9; 
+          bestBankIdx = bIdx;
+        }
+      } else if (sim > 0.5 && sim > bestScore) {
+        // Standard fuzzy match
         bestScore = sim;
         bestBankIdx = bIdx;
       }
     }
 
-    if (bestBankIdx !== -1 && bestScore >= 0.5) {
+    if (bestBankIdx !== -1 && bestScore >= 0.3) {
       const bRow = bankRows[bestBankIdx];
       matchedBankIndices.add(bestBankIdx);
 
       const diff = Math.abs(lRow.amount - bRow.amount);
 
       if (isDuplicateLedger) {
-        // Duplicate posting in company books
         results.push({
           transaction_id: lRow.transaction_id,
           transaction_date: lRow.transaction_date,
@@ -112,7 +126,7 @@ export function runFuzzyReconciliation(
           reconciliation_reason: null,
           confidence_score: 95,
         });
-      } else if (diff === 0) {
+      } else if (diff === 0 && bestScore >= 0.5) {
         // Exact 1-to-1 Match
         results.push({
           transaction_id: lRow.transaction_id,
@@ -124,9 +138,25 @@ export function runFuzzyReconciliation(
           match_status: 'Matched',
           resolution_status: 'Resolved',
           assignee: 'System (Auto)',
-          resolution_notes: 'Automatic match by fuzzy rules engine.',
+          resolution_notes: 'Automatic match by hybrid reconciliation engine.',
           reconciliation_reason: 'Exact Match',
-          confidence_score: 100,
+          confidence_score: Math.round(bestScore * 100),
+        });
+      } else if (bestScore >= 0.8) {
+        // High confidence probable match
+        results.push({
+          transaction_id: lRow.transaction_id,
+          transaction_date: lRow.transaction_date,
+          description: lRow.description,
+          ledger_amount: lRow.amount,
+          bank_amount: bRow.amount,
+          difference: diff,
+          match_status: 'Probable Match',
+          resolution_status: 'Open',
+          assignee: 'System (Auto)',
+          resolution_notes: 'Probable match by hybrid engine (Description/Amount). Needs human verification.',
+          reconciliation_reason: 'High Confidence Probable Match',
+          confidence_score: Math.round(bestScore * 100),
         });
       } else {
         // Amount Mismatch / Variance
